@@ -1,0 +1,354 @@
+
+DAOManager.prototype.Setup = function() 
+{
+		console.log("DAOManager.prototype.Setup");
+		this.db = window.openDatabase("Database", "1.0", "AudioBookMain", 200000);
+        this.db.transaction(this.populateDB,  this.populateErrorCB,this.populateSuccessCB);
+		
+}
+DAOManager.prototype.populateDB = function(tx) {
+    
+         console.log("DAOManager.prototype.populateDB");
+		 
+		 
+		 tx.executeSql('DROP TABLE IF  EXISTS config');
+         tx.executeSql('DROP TABLE IF  EXISTS transactions');
+         tx.executeSql('DROP TABLE IF  EXISTS books');
+         tx.executeSql('DROP TABLE IF  EXISTS categorys');
+         tx.executeSql('DROP TABLE IF  EXISTS search');
+		 
+		 
+		 
+		 tx.executeSql('CREATE TABLE IF NOT EXISTS config (name unique,value)');
+         tx.executeSql('CREATE TABLE IF NOT EXISTS transactions (transactionIdentifier, productId unique, transactionReceipt,raw)');
+         tx.executeSql('CREATE TABLE IF NOT EXISTS books (id,is_new,alias,audio,title,author_name,category_id,category_label,editor_choose,rate,content)');
+         tx.executeSql('CREATE TABLE IF NOT EXISTS categorys  (id unique, label)');
+         tx.executeSql('CREATE TABLE IF NOT EXISTS search     (bookId unique, searchHash)');
+    
+}
+
+DAOManager.prototype._saveBook = function(tx)
+{
+	console.log("DAOManager.prototype._saveBook",tx);
+	tx.executeSql('INSERT INTO transactions (transactionIdentifier, productId, transactionReceipt,raw) VALUES (?,?,?,?)',[DAOManager.transactionIdentifier,DAOManager.productId,DAOManager.transactionReceipt,DAOManager.raw]);
+}
+
+DAOManager.prototype._updateBook = function(tx)
+{
+	console.log("DAOManager.prototype._updateBook");
+	tx.executeSql('UPDATE transactions  SET transactionIdentifier=?,  transactionReceipt=?,raw=?  WHERE productId=?',[DAOManager.transactionIdentifier,DAOManager.transactionReceipt,DAOManager.raw,DAOManager.productId]);
+}
+
+DAOManager.prototype.saveBook = function(transactionIdentifier, productId, transactionReceipt,raw)
+{
+
+		console.log("DAOManager.prototype.saveBook", transactionIdentifier, productId, transactionReceipt,raw);
+		DAOManager.transactionIdentifier = transactionIdentifier;
+		DAOManager.productId = productId;
+		DAOManager.transactionReceipt = transactionReceipt;
+		DAOManager.raw = raw;
+		DAOManager.db.transaction(DAOManager._saveBook, DAOManager.errorCB, DAOManager.successCB);
+		
+}
+
+DAOManager.prototype.UpdateBook = function(transactionIdentifier, productId, transactionReceipt,raw)
+{
+		console.log("DAOManager.prototype.UpdateBook", transactionIdentifier, productId, transactionReceipt,raw);
+		
+		DAOManager.transactionIdentifier = transactionIdentifier;
+		DAOManager.productId = productId;
+		DAOManager.transactionReceipt = transactionReceipt;
+		DAOManager.raw = raw;
+		DAOManager.db.transaction(DAOManager._updateBook, DAOManager.errorCB, page.updateBookSuccessCB);
+		
+}
+
+
+// Transaction error callback
+DAOManager.prototype.queryError = function(tx) 
+{
+	
+    console.log("DAOManager.prototype.queryError | Error processing SQL: "+tx.code);
+	return true;
+}
+DAOManager.prototype.errorCB = function(tx) {
+		console.log("DAOManager.prototype.errorCB | Error processing SQL: "+tx.message);
+}
+DAOManager.prototype.populateErrorCB = function(tx) {
+
+        
+        console.log("DAOManager.prototype.populateErrorCB | Error processing SQL: "+tx.message);
+}
+DAOManager.prototype.isProductByed = function (porductID) 
+{
+	
+		console.log(porductID);
+		DAOManager.db.transaction(
+		function(tx)
+		{
+			tx.executeSql('SELECT * FROM transactions WHERE productId=?', [porductID],
+			DAOManager.isProductByedSuccess,
+			DAOManager.queryError);
+		}, DAOManager.errorCB, DAOManager.querySuccess);
+}
+DAOManager.prototype.queryDB = function (tx) {
+	console.log("DAOManager.prototype.queryDB");
+	tx.executeSql('SELECT * FROM transactions', [],DAOManager.querySuccess,DAOManager.queryError);
+}
+
+
+
+
+// Transaction success callback
+DAOManager.prototype.isProductByedSuccess = function(tx,results)
+{
+	
+	console.log("DAOManager.prototype.isProductByedSuccess",results.rows.length);
+	
+	if(results.rows.length > 0)
+	{ 
+		var row = results.rows.item(0);
+		 
+		var bookRaw =   JSON.parse(row.raw);
+		
+		DAOManager.selectedProducts = bookRaw.s1_chapters[0].audio;
+		 
+		
+		var url = "Pages-player.html?src=book/"+bookRaw.id+".json";
+		$.mobile.changePage( url , { transition: "flip"} );
+	}
+	return false;
+}
+DAOManager.prototype.querySuccess = function(tx, results) 
+{
+	console.log("DAOManager.prototype.querySuccess.results.length=",results.rows.length);
+	pnedding = 0;
+	for (var i=0; i<results.rows.length; i++) {
+        // Each row is a standard JavaScript array indexed by
+        // column names.
+        var row = results.rows.item(i);
+        console.log("results.rows.item(i)",row);
+		for(var index in row)
+		{
+			console.log("results.rows.item(i)",index,row[index]);
+		}
+		if(row.transactionIdentifier == 'pending')
+		{
+			pnedding++;
+		}
+    }
+	if(pnedding > 0)
+	{
+		window.plugins.inAppPurchaseManager.restoreCompletedTransactions();
+	}
+	return true;
+}
+DAOManager.prototype.successCB = function() 
+{
+	console.log("DAOManager.prototype.successCB");
+	DAOManager.prototype.transactionIdentifier = null;
+	DAOManager.prototype.productId = null;
+	DAOManager.prototype.transactionReceipt = null;
+	DAOManager.prototype.raw = null;
+    
+    
+}
+DAOManager.prototype.populateSuccessCB = function() 
+{
+		
+		DAOManager.transactionIdentifier = null;
+		DAOManager.productId = null;
+		DAOManager.transactionReceipt = null;
+		DAOManager.raw = null;
+        DAOManager.initData();
+		
+}
+
+DAOManager.prototype.loadDataFromServer = function()
+{
+
+    $.ajax({
+           
+           url: "http://www.audiobook.am/app/app-install.php",
+           success: function (rawData) 
+		   {
+			   
+			   
+			   var  query = "INSERT INTO books (id,is_new,alias,audio,title,author_name,category_id,category_label,editor_choose,rate,content) VALUES";
+			   var  bind = new Array();
+			   var  counters = new Array();
+			   
+			   
+			   for (bookIndex in rawData.books )
+			   {
+					var cBook = rawData.books[bookIndex];
+					counters.push("(?,?,?,?,?,?,?,?,?,?,?)");
+					bind.push(cBook.id);
+					bind.push(cBook.is_new);
+					bind.push(cBook.alias);
+					bind.push(cBook.audio);
+					bind.push(cBook.title);
+					bind.push(cBook.author_name); 
+					bind.push(cBook.category_id); 
+					bind.push(cBook.category_label);
+					bind.push(cBook.editor_choose);
+					bind.push(cBook.rate);
+					bind.push(cBook.content);
+					
+			   }
+			    query = query+ counters.join(",");
+			   
+			    
+				
+				var cQuery = 'INSERT INTO  categorys  (id,label) VALUES';
+				var cBind = new Array();   
+				var counter = new Array();
+			    for(categoryIndex in  rawData.categorys)
+				{
+           			var category = rawData.categorys  [categoryIndex];
+		            
+           			cBind.push(category.id);
+					cBind.push(category.label);
+					counter.push("(?,?)");
+				}
+				cQuery = cQuery +counter.join(",");
+				
+			   console.log("query,bind", query,bind);
+			   console.log("query,bind", cQuery,cBind );
+			   DAOManager.db.transaction( function(tx) {
+tx.executeSql(cQuery, cBind, 
+function(tx,results){ console.log("CC1",tx,results); },
+function(tx,err){ console.log("CC2",tx,err.message); });
+
+tx.executeSql(query, bind, 
+function(tx,results){ console.log("CB1",tx,results); },
+function(tx,err){ console.log("CB2",tx,err.message); });
+
+
+tx.executeSql("INSERT INTO config(name, value) values(?,?)", ['first_run_complete',1], 
+function(tx,results)
+{ 
+
+
+			if(confirm("Are you have a bayed books"))
+			{
+				page.restoreOldTransactions();
+			}
+			
+			page.initPages();
+
+},
+function(tx,err){ console.log("CCO2",tx,err.message); });
+
+										 
+										 },DAOManager.errorCB, DAOManager.successCB);
+			  
+			   
+           
+           }
+           
+           
+           
+          
+           
+           
+           });
+}
+
+DAOManager.prototype.initData = function()
+{
+
+
+	
+    DAOManager.db.transaction(function(tx)
+                              {
+                              
+                              tx.executeSql("SELECT * FROM config WHERE name=?",["first_run_complete"],function(tx,results)
+                                            {
+												
+                                            
+                                            
+												 
+												if(results.rows.length > 0)
+												{ 
+														
+														page.initPages();
+												}
+												else
+												{
+													
+														 
+														 DAOManager.loadDataFromServer();
+												
+												}
+                                            
+                                            return false;
+                                            },
+											function(err)
+                                            {
+                                            
+                                               console.log("Sql Error :: "+err.message);
+                                            })
+                              
+                              
+                              }, DAOManager.errorCB, DAOManager.querySuccess);
+    
+}
+
+
+
+
+DAOManager.prototype.selectMyBooks = function()
+{
+    DAOManager.db.transaction(function(tx)
+                              {
+                              
+                              tx.executeSql("SELECT * FROM transactions WHERE 1",[],function(tx,results)
+                                            {
+												
+												
+												for( var i = 0; i < results.rows.length; i++)
+												{
+													
+													
+													var row = results.rows.item(i);
+													console.log("results.rows.item(i)",row);
+												
+													var bookRaw =   JSON.parse(row.raw);
+													
+													DAOManager.selectedProducts = bookRaw.s1_chapters[0].audio;
+													
+													var listviewItem = $("<li>");
+													var listviewItemLink = $("<a>",
+														{
+														href:"Pages-player.html?src=book/"+bookRaw.id+".json",
+														'data-transition':"flip"
+														});
+													var listviewItemImg = $("<img>",{src:"data/images/thumb-book-"+bookRaw.id+".png"});
+													var listviewItemText = $("<span>",{text:bookRaw.title});
+													
+													listviewItemImg.appendTo(listviewItemLink);
+													listviewItemText.appendTo(listviewItemLink);
+													listviewItemLink.appendTo(listviewItem);
+													listviewItem.appendTo($("#MyBookList"));
+													
+												}
+												$("#MyBookList").listview("refresh");
+												return false;
+                                            },function(err)
+                                            {
+                                            
+                                               console.log("Sql Error :: "+err.message);
+                                            })
+                              
+                              
+                              }, DAOManager.errorCB, DAOManager.querySuccess);
+    
+}
+//DAOManager.db.transaction(DAOManager.queryDB, DAOManager.errorCB, DAOManager.querySuccess);
+
+DAOManager.prototype.selectedProducts = null;
+DAOManager.prototype.transactionIdentifier = null;
+DAOManager.prototype.productId = null;
+DAOManager.prototype.transactionReceipt = null;
+DAOManager.prototype.raw = null;
